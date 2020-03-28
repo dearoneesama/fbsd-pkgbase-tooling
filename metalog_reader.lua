@@ -3,6 +3,9 @@
 	(make packages) and generates reports about the installed system
 	and issues
 
+	the script accepts an mtree file in a format that's returned by
+	'mtree -c | mtree -C'
+
 	behaviour:
 
 	for each package, if it has setuid/setgid files, its name will be appended
@@ -22,8 +25,9 @@
 	different values, an error is shown:
 	error: ./file exists in multiple locations and with different meta: line 8486,35592 off by "size"
 
-	what's not impled:
-	hardlink check
+	if an inode correpsonds to multiple hardlinks, and these filenames have
+	different name-values, an error is shown:
+	error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
 ]]
 
 function main(args)
@@ -35,6 +39,7 @@ function main(args)
 	local dupwarn, duperr = s.dup_report()
 	io.write(dupwarn)
 	io.write(duperr)
+	--io.write(s.inode_report())
 end
 
 function usage()
@@ -98,9 +103,12 @@ end
 -- check if an array of MetalogRows are equivalent. if not, the first field
 -- that's different is returned secondly
 --- @param rows MetalogRow[]
-function metalogrows_all_equal(rows)
+--- @param ignore_name boolean
+function metalogrows_all_equal(rows, ignore_name)
 	local __eq = function(l, o)
-		if l.filename ~= o.filename then return false end
+		if not ignore_name then
+			if l.filename ~= o.filename then return false end
+		end
 		-- ignoring linenum in METALOG file as it's not relavant
 		for k in pairs(l.attrs) do
 			--if k == 'tags' then goto continue end
@@ -211,12 +219,56 @@ function Analysis_session(metalog)
 		return table.concat(warn, ''), table.concat(errs, '')
 	end
 
+	-- returns a string describing errors of hard links with different meta
+	--- @public
+	local function inode_report()
+		-- obtain inodes of filenames
+		local attributes = require('lfs').attributes
+		local inm = {} -- map<number, string[]>
+		for filename in pairs(files) do
+			-- make ./xxx become /xxx so that we can stat
+			filename = filename:sub(2)
+			local fs = attributes(filename)
+			if fs == nil then goto continue end
+			local inode = fs.ino
+			inm[inode] = inm[inode] or {}
+			-- add back the dot prefix
+			table.insert(inm[inode], '.'..filename)
+			::continue::
+		end
+
+		local errs = {}
+		for _, filenames in pairs(inm) do
+			if #filenames == 1 then goto continue end
+			-- i only took the first row of a filename,
+			-- and skip links and folders
+			local rows = table_map(filenames, function(e)
+				local row = files[e][1]
+				if row.attrs.type ~= 'link' and row.attrs.type ~= 'dir' then
+					return row
+				end
+			end)
+			local iseq, offby = metalogrows_all_equal(rows, true)
+			if not iseq then
+				errs[#errs+1] = 'error: '
+					..'entries point to the same inode but have different meta: '
+					..table.concat(filenames, ',')..' in line '
+					..table.concat(
+						table_map(rows, function(e) return e.linenum end), ',')
+					..'. off by "'..offby..'"'
+				errs[#errs+1] = '\n'
+			end
+			::continue::
+		end
+		return table.concat(errs, '')
+	end
+
 	local fp, errmsg, errcode = io.open(metalog, 'r')
 	if fp == nil then
 		io.stderr:write('cannot open '..metalog..': '..errmsg..': '..errcode..'\n')
 	end
 
-	-- scan all lines and put file data into the arrays
+	-- scan all lines and put file data into the dictionaries
 	local lineno = 0
 	for line in fp:lines() do
 		-----local isinpkg = false
@@ -250,7 +302,8 @@ function Analysis_session(metalog)
 
 	return {
 		pkg_report = pkg_report,
-		dup_report = dup_report
+		dup_report = dup_report,
+		inode_report = inode_report
 	}
 end
 
