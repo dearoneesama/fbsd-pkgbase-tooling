@@ -123,7 +123,9 @@ function Analysis_session(metalog)
 	local files = {} -- map<string, MetalogRow[]>
 	-- set is map<elem, bool>. if bool is true then elem exists
 	local pkgs = {} -- map<string, set<string>>
-	local nopkg = {} --            set<string>
+	------ used to keep track of files not belonging to a pkg. not used so
+	------ it is commented with -----
+	------local nopkg = {} --            set<string>
 
 	-- returns number of files in package and size of package
 	-- nil is  returned upon errors
@@ -192,7 +194,7 @@ function Analysis_session(metalog)
 			local iseq, offby = metalogrows_all_equal(rows)
 			if iseq then -- repeated line, just a warning
 				warn[#warn+1] = 'warning: '..filename
-					..' exists in multiple locations identically: line '
+					..' exists in multiple locations: line '
 					..table.concat(
 						table_map(rows, function(e) return e.linenum end), ',')
 				warn[#warn+1] = '\n'
@@ -217,7 +219,7 @@ function Analysis_session(metalog)
 	-- scan all lines and put file data into the arrays
 	local lineno = 0
 	for line in fp:lines() do
-		local isinpkg = false
+		-----local isinpkg = false
 		lineno = lineno + 1
 		-- skip lines begining with #
 		if line:match('^%s*#') then goto continue end
@@ -235,11 +237,11 @@ function Analysis_session(metalog)
 					pkgs[pkgname] = pkgs[pkgname] or {}
 					pkgs[pkgname][data.filename] = true
 				end
-				isinpkg = true
+				------isinpkg = true
 			end
 		end
 
-		if not isinpkg then nopkg[data.filename] = true end
+		-----if not isinpkg then nopkg[data.filename] = true end
 
 		::continue::
 	end
