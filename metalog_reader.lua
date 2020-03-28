@@ -21,6 +21,9 @@
 	*intersection* of their metadata names present in the METALOG have
 	different values, an error is shown:
 	error: ./file exists in multiple locations and with different meta: line 8486,35592 off by "size"
+
+	what's not impled:
+	hardlink check
 ]]
 
 function main(args)
@@ -94,7 +97,7 @@ end
 
 -- check if an array of MetalogRows are equivalent. if not, the first field
 -- that's different is returned secondly
---- @param rows MetalogRow
+--- @param rows MetalogRow[]
 function metalogrows_all_equal(rows)
 	local __eq = function(l, o)
 		if l.filename ~= o.filename then return false end
@@ -247,7 +250,6 @@ function Analysis_session(metalog)
 		pkg_report = pkg_report,
 		dup_report = dup_report
 	}
-
 end
 
 main(arg)
