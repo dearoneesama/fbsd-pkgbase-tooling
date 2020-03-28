@@ -2,12 +2,36 @@
 	metalog.lua is a script that reads METALOG file created by pkgbase
 	(make packages) and generates reports about the installed system
 	and issues
+
+	behaviour:
+
+	for each package, if it has setuid/setgid files, its name will be appended
+	with "setuid setgid".
+	the number of files of the package and their total size is printed. if any
+	files contain errors, the size may not be able to deduce
+
+	if a same filename appears multiple times in the METALOG, and the
+	*intersection* of their metadata names present in the METALOG have
+	identical values, a warning is shown:
+	warning: ./file exists in multiple locations identically: line 1475,30478
+	(that means if line A has field "tags" but line B doesn't, if the remaning
+	fields are equal, this warning is still shown)
+
+	if a same filename appears multiple times in the METALOG, and the
+	*intersection* of their metadata names present in the METALOG have
+	different values, an error is shown:
+	error: ./file exists in multiple locations and with different meta: line 8486,35592 off by "size"
 ]]
 
 function main(args)
 	if #args == 0 then usage() end
 	local filename = args[1]
-	Analysis_session(filename)
+	local s = Analysis_session(filename)
+	io.write('--- PACKAGE REPORTS ---\n')
+	io.write(s.pkg_report())
+	local dupwarn, duperr = s.dup_report()
+	io.write(dupwarn)
+	io.write(duperr)
 end
 
 function usage()
@@ -27,25 +51,16 @@ function sortedPairs(t)
     end
 end
 
---- @param array table
-function array_all_equal(array)
-	for _, v in ipairs(array) do
-		if v ~= array[1] then return false end
-	end
-	return true
+--- @param t table <T, U>
+--- @param f function <U -> U>
+function table_map(t, f)
+    local res = {}
+    for k, v in pairs(t) do res[k] = f(v) end
+    return res
 end
 
-__MetalogRow_mt = {
-	-- ignore lineno
-	__eq = function(this, o)
-		if this.filename ~= o.filename then return false end
-		for k in pairs(this.attrs) do
-			if this.attrs[k] ~= o.attrs[k] and o.attrs[k] ~= nil then return false end
-		end
-		return true
-	end
-}
--- creates a table contaning file's info, from the line content from METALOG
+--- @class MetalogRow
+-- a table contaning file's info, from a line content from METALOG file
 -- all fields in the table are strings
 -- sample output:
 --	{
@@ -74,8 +89,30 @@ function MetalogRow(line, lineno)
 	res.filename = filename
 	res.linenum = lineno
 	res.attrs = attrs
-	setmetatable(res, __MetalogRow_mt)
 	return res
+end
+
+-- check if an array of MetalogRows are equivalent. if not, the first field
+-- that's different is returned secondly
+--- @param rows MetalogRow
+function metalogrows_all_equal(rows)
+	local __eq = function(l, o)
+		if l.filename ~= o.filename then return false end
+		-- ignoring linenum in METALOG file as it's not relavant
+		for k in pairs(l.attrs) do
+			--if k == 'tags' then goto continue end
+			if l.attrs[k] ~= o.attrs[k] and o.attrs[k] ~= nil then
+				return false, k
+			end
+			--::continue::
+		end
+		return true
+	end
+	for _, v in ipairs(rows) do
+		local bol, offby = __eq(v, rows[1])
+		if not bol then return false, offby end
+	end
+	return true
 end
 
 --- @param metalog string
@@ -95,7 +132,7 @@ function Analysis_session(metalog)
 			-- normally, there should be only one row per filename
 			-- if these rows are equal, there should be warning, but it
 			-- does not affect size counting. if not, it is an error
-			if #rows > 1 and not array_all_equal(rows) then
+			if #rows > 1 and not metalogrows_all_equal(rows) then
 				return nil
 			end
 			local row = rows[1]
@@ -122,6 +159,8 @@ function Analysis_session(metalog)
 		return issetuid, issetgid
 	end
 
+	-- returns a string describing package scan report
+	--- @public
 	local function pkg_report()
 		local sb = {}
 		for pkgname in sortedPairs(pkgs) do
@@ -138,6 +177,33 @@ function Analysis_session(metalog)
 			sb[#sb+1] = '\n'
 		end
 		return table.concat(sb, '')
+	end
+
+	-- returns a string describing duplicate file warnings,
+	-- returns a string describing duplicate file errors
+	--- @public
+	local function dup_report()
+		local warn, errs = {}, {}
+		for filename, rows in sortedPairs(files) do
+			if #rows == 1 then goto continue end
+			local iseq, offby = metalogrows_all_equal(rows)
+			if iseq then -- repeated line, just a warning
+				warn[#warn+1] = 'warning: '..filename
+					..' exists in multiple locations identically: line '
+					..table.concat(
+						table_map(rows, function(e) return e.linenum end), ',')
+				warn[#warn+1] = '\n'
+			else -- same filename, different metadata, an error
+				errs[#errs+1] = 'error: '..filename
+					..' exists in multiple locations and with different meta: line '
+					..table.concat(
+						table_map(rows, function(e) return e.linenum end), ',')
+					..'. off by "'..offby..'"'
+				errs[#errs+1] = '\n'
+			end
+			::continue::
+		end
+		return table.concat(warn, ''), table.concat(errs, '')
 	end
 
 	local fp, errmsg, errcode = io.open(metalog, 'r')
@@ -174,9 +240,13 @@ function Analysis_session(metalog)
 
 		::continue::
 	end
-	print(pkg_report())
 
 	fp:close()
+
+	return {
+		pkg_report = pkg_report,
+		dup_report = dup_report
+	}
 
 end
 
