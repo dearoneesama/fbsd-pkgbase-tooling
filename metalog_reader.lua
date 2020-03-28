@@ -49,22 +49,22 @@ end
 
 --- @param t table
 function sortedPairs(t)
-    local sortedk = {}
-    for k in next, t do sortedk[#sortedk+1] = k end
-    table.sort(sortedk)
-    local i = 0
-    return function()
-        i = i + 1
-        return sortedk[i], t[sortedk[i]]
-    end
+	local sortedk = {}
+	for k in next, t do sortedk[#sortedk+1] = k end
+	table.sort(sortedk)
+	local i = 0
+	return function()
+		i = i + 1
+		return sortedk[i], t[sortedk[i]]
+	end
 end
 
 --- @param t table <T, U>
 --- @param f function <U -> U>
 function table_map(t, f)
-    local res = {}
-    for k, v in pairs(t) do res[k] = f(v) end
-    return res
+	local res = {}
+	for k, v in pairs(t) do res[k] = f(v) end
+	return res
 end
 
 --- @class MetalogRow
