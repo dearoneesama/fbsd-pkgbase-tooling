@@ -39,7 +39,9 @@ function main(args)
 	local dupwarn, duperr = s.dup_report()
 	io.write(dupwarn)
 	io.write(duperr)
-	--io.write(s.inode_report())
+	local inodewarn, inodeerr = s.inode_report()
+	io.write(inodewarn)
+	io.write(inodeerr)
 end
 
 function usage()
@@ -225,11 +227,15 @@ function Analysis_session(metalog)
 		-- obtain inodes of filenames
 		local attributes = require('lfs').attributes
 		local inm = {} -- map<number, string[]>
+		local unstatable = 0
 		for filename in pairs(files) do
 			-- make ./xxx become /xxx so that we can stat
 			filename = filename:sub(2)
 			local fs = attributes(filename)
-			if fs == nil then goto continue end
+			if fs == nil then
+				unstatable = unstatable + 1
+				goto continue
+			end
 			local inode = fs.ino
 			inm[inode] = inm[inode] or {}
 			-- add back the dot prefix
@@ -237,14 +243,14 @@ function Analysis_session(metalog)
 			::continue::
 		end
 
-		local errs = {}
+		local warn, errs = {}, {}
 		for _, filenames in pairs(inm) do
 			if #filenames == 1 then goto continue end
 			-- i only took the first row of a filename,
 			-- and skip links and folders
 			local rows = table_map(filenames, function(e)
 				local row = files[e][1]
-				if row.attrs.type ~= 'link' and row.attrs.type ~= 'dir' then
+				if row.attrs.type == 'file' then
 					return row
 				end
 			end)
@@ -260,7 +266,12 @@ function Analysis_session(metalog)
 			end
 			::continue::
 		end
-		return table.concat(errs, '')
+
+		if unstatable > 0 then
+			warn[#warn+1] = 'warning: could not check inodes for '..unstatable..' entries\n'
+		end
+
+		return table.concat(warn, ''), table.concat(errs, '')
 	end
 
 	local fp, errmsg, errcode = io.open(metalog, 'r')
