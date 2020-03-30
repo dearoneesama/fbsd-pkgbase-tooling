@@ -6,6 +6,8 @@
 	the script accepts an mtree file in a format that's returned by
 	'mtree -c | mtree -C'
 
+	to ignore "tags", uncomment code section in metalogrows_all_equal()
+
 	behaviour:
 
 	for each package, if it has setuid/setgid files, its name will be appended
@@ -221,7 +223,8 @@ function Analysis_session(metalog)
 		return table.concat(warn, ''), table.concat(errs, '')
 	end
 
-	-- returns a string describing errors of hard links with different meta
+	-- returns a string describing warnings of found hard links
+	-- returns a string describing errors of found hard links
 	--- @public
 	local function inode_report()
 		-- obtain inodes of filenames
