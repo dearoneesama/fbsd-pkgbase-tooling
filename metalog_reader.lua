@@ -109,7 +109,7 @@ end
 function metalogrows_all_equal(rows, ignore_name)
 	local __eq = function(l, o)
 		if not ignore_name then
-			if l.filename ~= o.filename then return false end
+			if l.filename ~= o.filename then return false, 'filename' end
 		end
 		-- ignoring linenum in METALOG file as it's not relavant
 		for k in pairs(l.attrs) do
