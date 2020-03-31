@@ -1,5 +1,5 @@
---[[
-	metalog.lua is a script that reads METALOG file created by pkgbase
+--[=[
+	metalog_reader.lua is a script that reads METALOG file created by pkgbase
 	(make packages) and generates reports about the installed system
 	and issues
 
@@ -10,8 +10,8 @@
 
 	behaviour:
 
-	for each package, if it has setuid/setgid files, its name will be appended
-	with "setuid setgid".
+	under '-a' option for each package, if it has setuid/setgid files, its name will be
+	appended with "setuid setgid".
 	the number of files of the package and their total size is printed. if any
 	files contain errors, the size may not be able to deduce
 
@@ -30,25 +30,112 @@
 	if an inode corresponds to multiple hardlinks, and these filenames have
 	different name-values, an error is shown:
 	error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
-]]
+
+	synopsis:
+		metalog_reader.lua [-a | -c | -p [-count] [-size] [...filters]] metalog-path
+
+	some examples:
+
+	`metalog_reader.lua -a METALOG`
+		prints all scan results described above. this is the default option
+	`metalog_reader.lua -c METALOG`
+		only prints errors and warnings found in the file
+	`metalog_reader.lua -p METALOG`
+		only prints all the package names found in the file
+	`metalog_reader.lua -p -count -size METALOG`
+		prints all the package names, followed by number of files, followed by total size
+	`metalog_reader.lua -p -size -fsetid METALOG`
+		prints packages that has either setuid/setgid files, followed by the total size
+	`metalog_reader.lua -p -fsetuid -fsetgid METALOG`
+		prints packages that has both setuid and setgid files (if more than one filters are specified,
+		they are composed using logic and)
+	`metalog_reader.lua -p -count -size -fsetuid METALOG`
+		prints packages that has setuid files, followed by number of files and total size
+--]=]
 
 function main(args)
 	if #args == 0 then usage() end
-	local filename = args[1]
-	local s = Analysis_session(filename)
-	io.write('--- PACKAGE REPORTS ---\n')
-	io.write(s.pkg_report_full())
-	local dupwarn, duperr = s.dup_report()
-	io.write(dupwarn)
-	io.write(duperr)
-	local inodewarn, inodeerr = s.inode_report()
-	io.write(inodewarn)
-	io.write(inodeerr)
+	local filename
+	local printall, checkonly, pkgonly
+		= #args == 1, false, false
+	local dcount, dsize, fuid, fgid, fid
+		= false, false, false, false, false
+
+	local i = 1
+	while i <= #args do
+		if args[i] == '-a' then
+			printall = true
+		elseif args[i] == '-c' then
+			printall = false
+			checkonly = true
+		elseif args[i] == '-p' then
+			printall = false
+			pkgonly = true
+			while i < #args do
+				i = i+1
+				if args[i] == '-count' then
+					dcount = true
+				elseif args[i] == '-size' then
+					dsize = true
+				elseif args[i] == '-fsetuid' then
+					fuid = true
+				elseif args[i] == '-fsetgid' then
+					fgid = true
+				elseif args[i] == '-fsetid' then
+					fid = true
+				else
+					i = i-1
+					break
+				end
+			end
+		elseif args[i]:match('^%-') then
+			io.stderr:write('Unknown argument '..args[i]..'.\n')
+			usage()
+		else
+			filename = args[i]
+		end
+		i = i+1
+	end
+
+	if filename == nil then
+		io.stderr:write('Missing filename.\n')
+		usage()
+	end
+
+	local sess = Analysis_session(filename)
+
+	if printall then
+		io.write('--- PACKAGE REPORTS ---\n')
+		io.write(sess.pkg_report_full())
+		--print_lints(sess)
+	elseif checkonly then
+		print_lints(sess)
+	elseif pkgonly then
+		io.write(sess.pkg_report_simple(dcount, dsize, {
+			fuid and sess.pkg_issetuid or nil,
+			fgid and sess.pkg_issetgid or nil,
+			fid and sess.pkg_issetid or nil
+		}))
+	else
+		io.stderr:write('This text should not display.')
+		usage()
+	end
 end
 
 function usage()
-	io.stderr:write('usage: '..arg[0].. ' <metafile path>\n')
+	io.stderr:write('usage: '..arg[0].. ' [-a | -c | -p [-count] [-size] [...filters]] metalog-path \n'
+		..'available filters: [-fsetuid] [-fsetgid] [-fsetid]\n')
 	os.exit(1)
+end
+
+--- @param sess Analysis_session
+function print_lints(sess)
+	local dupwarn, duperr = sess.dup_report()
+	io.write(dupwarn)
+	io.write(duperr)
+	local inodewarn, inodeerr = sess.inode_report()
+	io.write(inodewarn)
+	io.write(inodeerr)
 end
 
 --- @param t table
@@ -162,19 +249,35 @@ function Analysis_session(metalog)
 		return filecount, sz
 	end
 
-	-- returns whether pkg has setuid files, whether pkg has setgid files
 	--- @param pkgname string
-	local function pkg_issetid(pkgname)
-		local issetuid, issetgid = false, false
+	--- @param mode number
+	local function pkg_ismode(pkgname, mode)
 		for filename in pairs(pkgs[pkgname]) do
-			-- considering duplicate files
 			for _, row in ipairs(files[filename]) do
-				local mode = tonumber(row.attrs.mode, 8)
-				if mode & 2048 ~= 0 then issetuid = true end
-				if mode & 1024 ~= 0 then issetgid = true end
+				if tonumber(row.attrs.mode, 8) & mode ~= 0 then
+					return true
+				end
 			end
 		end
-		return issetuid, issetgid
+		return false
+	end
+
+	--- @param pkgname string
+	--- @public
+	local function pkg_issetuid(pkgname)
+		return pkg_ismode(pkgname, 2048)
+	end
+
+	--- @param pkgname string
+	--- @public
+	local function pkg_issetgid(pkgname)
+		return pkg_ismode(pkgname, 1024)
+	end
+
+	--- @param pkgname string
+	--- @public
+	local function pkg_issetid(pkgname)
+		return pkg_issetuid(pkgname) or pkg_issetgid(pkgname)
 	end
 
 	-- sample return:
@@ -185,8 +288,8 @@ function Analysis_session(metalog)
 			res[pkgname] = {}
 			res[pkgname].count,
 			res[pkgname].size = pkg_size(pkgname)
-			res[pkgname].issetuid,
-			res[pkgname].issetgid = pkg_issetid(pkgname)
+			res[pkgname].issetuid = pkg_issetuid(pkgname)
+			res[pkgname].issetgid = pkg_issetgid(pkgname)
 		end
 		return res
 	end
@@ -211,33 +314,25 @@ function Analysis_session(metalog)
 
 	--- @param have_count boolean
 	--- @param have_size boolean
-	-- returns a string describing package size report
+	--- @param filters function[]
+	--- @public
+	-- returns a string describing package size report.
 	-- sample: "mypackage 2 2048"* if both booleans are true
-	local function pkg_report_size(have_count, have_size)
+	local function pkg_report_simple(have_count, have_size, filters)
+		filters = filters or {}
 		local sb = {}
 		for pkgname, v in sortedPairs(pkg_report_helper_table()) do
-			sb[#sb+1] = pkgname..table.concat({
-				have_count and (' '..(v.count or '?')) or '',
-				have_size and (' '..(v.size or '?')) or ''}, '')
-				..'\n'
+			local pred = true
+			-- doing a foldl to all the function results with (and)
+			for _, f in pairs(filters) do pred = pred and f(pkgname) end
+			if pred then
+				sb[#sb+1] = pkgname..table.concat({
+					have_count and (' '..(v.count or '?')) or '',
+					have_size and (' '..(v.size or '?')) or ''}, '')
+					..'\n'
+			end
 		end
 		return table.concat(sb, '')
-	end
-
-	--- @param have_uid boolean
-	--- @param have_gid boolean
-	-- returns a string containing packages that has setuid/setgid files
-	-- sample: "pkg1,pkg2,pkg3"  if all of < have setuid files, and have_uid is true
-	local function pkg_report_issetid(have_uid, have_gid)
-		local a, b = have_uid, have_gid
-		local ps = {}
-		for pkgname, v in sortedPairs(pkg_report_helper_table()) do
-			local c, d = v.issetuid, v.issetgid
-			-- (a && !b && c)||(b && !a && d)||(a && b && c && d)||(!a && !b)
-			if (not a and not b) or (not a and d) or (not b and c) or (c and d)
-				then ps[#ps+1] = pkgname end
-		end
-		return ('%s\n'):format(table.concat(ps, ','))
 	end
 
 	-- returns a string describing duplicate file warnings,
@@ -358,9 +453,11 @@ function Analysis_session(metalog)
 	fp:close()
 
 	return {
+		pkg_issetuid = pkg_issetuid,
+		pkg_issetgid = pkg_issetgid,
+		pkg_issetid = pkg_issetid,
 		pkg_report_full = pkg_report_full,
-		pkg_report_size = pkg_report_size,
-		pkg_report_issetid = pkg_report_issetid,
+		pkg_report_simple = pkg_report_simple,
 		dup_report = dup_report,
 		inode_report = inode_report
 	}
