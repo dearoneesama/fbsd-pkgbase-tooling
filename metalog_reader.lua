@@ -37,7 +37,7 @@ function main(args)
 	local filename = args[1]
 	local s = Analysis_session(filename)
 	io.write('--- PACKAGE REPORTS ---\n')
-	io.write(s.pkg_report())
+	io.write(s.pkg_report_full())
 	local dupwarn, duperr = s.dup_report()
 	io.write(dupwarn)
 	io.write(duperr)
@@ -130,14 +130,15 @@ function metalogrows_all_equal(rows, ignore_name)
 	return true
 end
 
+--- @class Analysis_session
 --- @param metalog string
 function Analysis_session(metalog)
 	local files = {} -- map<string, MetalogRow[]>
 	-- set is map<elem, bool>. if bool is true then elem exists
 	local pkgs = {} -- map<string, set<string>>
-	------ used to keep track of files not belonging to a pkg. not used so
-	------ it is commented with -----
-	------local nopkg = {} --            set<string>
+	----- used to keep track of files not belonging to a pkg. not used so
+	----- it is commented with -----
+	-----local nopkg = {} --            set<string>
 
 	-- returns number of files in package and size of package
 	-- nil is  returned upon errors
@@ -176,24 +177,67 @@ function Analysis_session(metalog)
 		return issetuid, issetgid
 	end
 
+	-- sample return:
+	-- { [*string]: { count=1, size=2, issetuid=true, issetgid=true } }
+	local function pkg_report_helper_table()
+		local res = {}
+		for pkgname in pairs(pkgs) do
+			res[pkgname] = {}
+			res[pkgname].count,
+			res[pkgname].size = pkg_size(pkgname)
+			res[pkgname].issetuid,
+			res[pkgname].issetgid = pkg_issetid(pkgname)
+		end
+		return res
+	end
+
 	-- returns a string describing package scan report
 	--- @public
-	local function pkg_report()
+	local function pkg_report_full()
 		local sb = {}
-		for pkgname in sortedPairs(pkgs) do
-			local numf, sz = pkg_size(pkgname)
-			local issetuid, issetgid = pkg_issetid(pkgname)
+		for pkgname, v in sortedPairs(pkg_report_helper_table()) do
 			sb[#sb+1] = 'Package '..pkgname..':'
-			if issetuid or issetgid then
+			if v.issetuid or v.issetgid then
 				sb[#sb+1] = ''..table.concat({
-					issetuid and ' setuid' or '',
-					issetgid and ' setgid' or '' }, '')
+					v.issetuid and ' setuid' or '',
+					v.issetgid and ' setgid' or '' }, '')
 			end
-			sb[#sb+1] = '\n  number of files: '..(numf or '?')
-				..'\n  total size: '..(sz or '?')
+			sb[#sb+1] = '\n  number of files: '..(v.count or '?')
+				..'\n  total size: '..(v.size or '?')
 			sb[#sb+1] = '\n'
 		end
 		return table.concat(sb, '')
+	end
+
+	--- @param have_count boolean
+	--- @param have_size boolean
+	-- returns a string describing package size report
+	-- sample: "mypackage 2 2048"* if both booleans are true
+	local function pkg_report_size(have_count, have_size)
+		local sb = {}
+		for pkgname, v in sortedPairs(pkg_report_helper_table()) do
+			sb[#sb+1] = pkgname..table.concat({
+				have_count and (' '..(v.count or '?')) or '',
+				have_size and (' '..(v.size or '?')) or ''}, '')
+				..'\n'
+		end
+		return table.concat(sb, '')
+	end
+
+	--- @param have_uid boolean
+	--- @param have_gid boolean
+	-- returns a string containing packages that has setuid/setgid files
+	-- sample: "pkg1,pkg2,pkg3"  if all of < have setuid files, and have_uid is true
+	local function pkg_report_issetid(have_uid, have_gid)
+		local a, b = have_uid, have_gid
+		local ps = {}
+		for pkgname, v in sortedPairs(pkg_report_helper_table()) do
+			local c, d = v.issetuid, v.issetgid
+			-- (a && !b && c)||(b && !a && d)||(a && b && c && d)||(!a && !b)
+			if (not a and not b) or (not a and d) or (not b and c) or (c and d)
+				then ps[#ps+1] = pkgname end
+		end
+		return ('%s\n'):format(table.concat(ps, ','))
 	end
 
 	-- returns a string describing duplicate file warnings,
@@ -306,16 +350,16 @@ function Analysis_session(metalog)
 				------isinpkg = true
 			end
 		end
-
 		-----if not isinpkg then nopkg[data.filename] = true end
-
 		::continue::
 	end
 
 	fp:close()
 
 	return {
-		pkg_report = pkg_report,
+		pkg_report_full = pkg_report_full,
+		pkg_report_size = pkg_report_size,
+		pkg_report_issetid = pkg_report_issetid,
 		dup_report = dup_report,
 		inode_report = inode_report
 	}
