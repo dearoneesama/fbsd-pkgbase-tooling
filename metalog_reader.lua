@@ -276,6 +276,11 @@ function Analysis_session(metalog)
 		local inm = {} -- map<number, string[]>
 		local unstatable = 0
 		for filename in pairs(files) do
+			-- i only took the first row of a filename,
+			-- and skip links and folders
+			if files[filename][1].attrs.type ~= 'file' then
+				goto continue
+			end
 			-- make ./xxx become /xxx so that we can stat
 			filename = filename:sub(2)
 			local fs = attributes(filename)
@@ -293,13 +298,9 @@ function Analysis_session(metalog)
 		local warn, errs = {}, {}
 		for _, filenames in pairs(inm) do
 			if #filenames == 1 then goto continue end
-			-- i only took the first row of a filename,
-			-- and skip links and folders
+			-- i only took the first row of a filename
 			local rows = table_map(filenames, function(e)
-				local row = files[e][1]
-				if row.attrs.type == 'file' then
-					return row
-				end
+				return files[e][1]
 			end)
 			local iseq, offby = metalogrows_all_equal(rows, true)
 			if not iseq then
@@ -315,7 +316,7 @@ function Analysis_session(metalog)
 		end
 
 		if unstatable > 0 then
-			warn[#warn+1] = 'warning: could not check inodes for '..unstatable..' entries\n'
+			warn[#warn+1] = 'note: skipped checking inodes for '..unstatable..' entries\n'
 		end
 
 		return table.concat(warn, ''), table.concat(errs, '')
