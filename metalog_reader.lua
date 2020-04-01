@@ -6,8 +6,6 @@
 	the script accepts an mtree file in a format that's returned by
 	'mtree -c | mtree -C'
 
-	to ignore "tags", uncomment code section in metalogrows_all_equal()
-
 	behaviour:
 
 	under '-a' option for each package, if it has setuid/setgid files, its name will be
@@ -18,8 +16,8 @@
 	if a same filename appears multiple times in the METALOG, and the
 	*intersection* of their metadata names present in the METALOG have
 	identical values, a warning is shown:
-	warning: ./file exists in multiple locations identically: line 1475,30478
-	(that means if line A has field "tags" but line B doesn't, if the remaining
+	warning: ./file repeated with same meta: line 1475,30478
+	(that means if line A has field "size" but line B doesn't, if the remaining
 	fields are equal, this warning is still shown)
 
 	if a same filename appears multiple times in the METALOG, and the
@@ -107,7 +105,7 @@ function main(args)
 	if printall then
 		io.write('--- PACKAGE REPORTS ---\n')
 		io.write(sess.pkg_report_full())
-		--print_lints(sess)
+		print_lints(sess)
 	elseif checkonly then
 		print_lints(sess)
 	elseif pkgonly then
@@ -195,18 +193,19 @@ end
 -- that's different is returned secondly
 --- @param rows MetalogRow[]
 --- @param ignore_name boolean
-function metalogrows_all_equal(rows, ignore_name)
+--- @param ignore_tags boolean
+function metalogrows_all_equal(rows, ignore_name, ignore_tags)
 	local __eq = function(l, o)
-		if not ignore_name then
-			if l.filename ~= o.filename then return false, 'filename' end
+		if not ignore_name and l.filename ~= o.filename then
+			return false, 'filename'
 		end
 		-- ignoring linenum in METALOG file as it's not relavant
 		for k in pairs(l.attrs) do
-			--if k == 'tags' then goto continue end
+			if ignore_tags and k == 'tags' then goto continue end
 			if l.attrs[k] ~= o.attrs[k] and o.attrs[k] ~= nil then
 				return false, k
 			end
-			--::continue::
+			::continue::
 		end
 		return true
 	end
@@ -345,11 +344,12 @@ function Analysis_session(metalog)
 			local iseq, offby = metalogrows_all_equal(rows)
 			if iseq then -- repeated line, just a warning
 				warn[#warn+1] = 'warning: '..filename
-					..' exists in multiple locations: line '
+					..' repeated with same meta: line '
 					..table.concat(
 						table_map(rows, function(e) return e.linenum end), ',')
 				warn[#warn+1] = '\n'
-			else -- same filename, different metadata, an error
+			elseif not metalogrows_all_equal(rows, false, true) then
+			-- same filename (possibly different tags), different metadata, an error
 				errs[#errs+1] = 'error: '..filename
 					..' exists in multiple locations and with different meta: line '
 					..table.concat(
@@ -397,7 +397,7 @@ function Analysis_session(metalog)
 			local rows = table_map(filenames, function(e)
 				return files[e][1]
 			end)
-			local iseq, offby = metalogrows_all_equal(rows, true)
+			local iseq, offby = metalogrows_all_equal(rows, true, true)
 			if not iseq then
 				errs[#errs+1] = 'error: '
 					..'entries point to the same inode but have different meta: '
@@ -437,12 +437,12 @@ function Analysis_session(metalog)
 		table.insert(files[data.filename], data)
 
 		if data.attrs.tags ~= nil then
-			local pkgnames = data.attrs.tags:match('package=(.+)')
-			if pkgnames ~= nil then
-				for pkgname in pkgnames:gmatch('[^,]+') do
-					pkgs[pkgname] = pkgs[pkgname] or {}
-					pkgs[pkgname][data.filename] = true
-				end
+			local segs = data.attrs.tags:match('package=(.+)')
+			local mistake = data.attrs.tags:match('(.+),package')
+			if segs ~= nil then
+				local pkgname = segs:gsub(',', '-')
+				pkgs[pkgname] = pkgs[pkgname] or {}
+				pkgs[pkgname][data.filename] = true
 				------isinpkg = true
 			end
 		end
