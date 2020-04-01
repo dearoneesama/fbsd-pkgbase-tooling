@@ -1,3 +1,4 @@
+#!/usr/libexec/flua
 --[=[
 	metalog_reader.lua is a script that reads METALOG file created by pkgbase
 	(make packages) and generates reports about the installed system
@@ -216,6 +217,25 @@ function metalogrows_all_equal(rows, ignore_name, ignore_tags)
 	return true
 end
 
+--- @param tagstr string
+function pkgname_from_tag(tagstr)
+	local ext, pkgname, pkgend = '', '', ''
+	for seg in tagstr:gmatch('[^,]+') do
+		if seg:match('package=') then
+			pkgname = seg:sub(9)
+		elseif seg == 'development' or seg == 'profile'
+			or seg == 'debug' or seg == 'docs' then
+			pkgend = seg
+		else
+			ext = ext == '' and seg or ext..'-'..seg
+		end
+	end
+	pkgname = pkgname
+		..(ext == '' and '' or '-'..ext)
+		..(pkgend == '' and '' or '-'..pkgend)
+	return pkgname
+end
+
 --- @class Analysis_session
 --- @param metalog string
 function Analysis_session(metalog)
@@ -225,6 +245,10 @@ function Analysis_session(metalog)
 	----- used to keep track of files not belonging to a pkg. not used so
 	----- it is commented with -----
 	-----local nopkg = {} --            set<string>
+	--- @public
+	local swarn = {}
+	--- @public
+	local serrs = {}
 
 	-- returns number of files in package and size of package
 	-- nil is  returned upon errors
@@ -437,14 +461,10 @@ function Analysis_session(metalog)
 		table.insert(files[data.filename], data)
 
 		if data.attrs.tags ~= nil then
-			local segs = data.attrs.tags:match('package=(.+)')
-			local mistake = data.attrs.tags:match('(.+),package')
-			if segs ~= nil then
-				local pkgname = segs:gsub(',', '-')
-				pkgs[pkgname] = pkgs[pkgname] or {}
-				pkgs[pkgname][data.filename] = true
-				------isinpkg = true
-			end
+			pkgname = pkgname_from_tag(data.attrs.tags)
+			pkgs[pkgname] = pkgs[pkgname] or {}
+			pkgs[pkgname][data.filename] = true
+			------isinpkg = true
 		end
 		-----if not isinpkg then nopkg[data.filename] = true end
 		::continue::
