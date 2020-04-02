@@ -1,58 +1,33 @@
 #!/usr/libexec/flua
---[=[
-	metalog_reader.lua is a script that reads METALOG file created by pkgbase
-	(make packages) and generates reports about the installed system
-	and issues
 
-	the script accepts an mtree file in a format that's returned by
-	'mtree -c | mtree -C'
+-- $FreeBSD$
 
-	behaviour:
+--[[
+	SPDX-License-Identifier: BSD-2-Clause-FreeBSD
 
-	under '-a' option for each package, if it has setuid/setgid files, its name will be
-	appended with "setuid setgid".
-	the number of files of the package and their total size is printed. if any
-	files contain errors, the size may not be able to deduce
+	Copyright(c) 2020 FreeBSD Foundation.
 
-	if a same filename appears multiple times in the METALOG, and the
-	*intersection* of their metadata names present in the METALOG have
-	identical values, a warning is shown:
-	warning: ./file repeated with same meta: line 1475,30478
-	(that means if line A has field "size" but line B doesn't, if the remaining
-	fields are equal, this warning is still shown)
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions
+	are met:
+	1. Redistributions of source code must retain the above copyright
+	notice, this list of conditions and the following disclaimer.
+	2. Redistributions in binary form must reproduce the above copyright
+	notice, this list of conditions and the following disclaimer in the
+	documentation and/or other materials provided with the distribution.
 
-	if a same filename appears multiple times in the METALOG, and the
-	*intersection* of their metadata names present in the METALOG have
-	different values, an error is shown:
-	error: ./file exists in multiple locations and with different meta: line 8486,35592 off by "size"
-
-	if an inode corresponds to multiple hardlinks, and these filenames have
-	different name-values, an error is shown:
-	error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
-
-	synopsis:
-		metalog_reader.lua [-h] [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
-
-	some examples:
-
-	`metalog_reader.lua -a METALOG`
-		prints all scan results described above. this is the default option
-	`metalog_reader.lua -c METALOG`
-		only prints errors and warnings found in the file
-	`metalog_reader.lua -c -Wcheck-notagdir METALOG`
-		prints errors and warnings found in the file, including directories with no tags
-	`metalog_reader.lua -p METALOG`
-		only prints all the package names found in the file
-	`metalog_reader.lua -p -count -size METALOG`
-		prints all the package names, followed by number of files, followed by total size
-	`metalog_reader.lua -p -size -fsetid METALOG`
-		prints packages that has either setuid/setgid files, followed by the total size
-	`metalog_reader.lua -p -fsetuid -fsetgid METALOG`
-		prints packages that has both setuid and setgid files (if more than one filters are specified,
-		they are composed using logic and)
-	`metalog_reader.lua -p -count -size -fsetuid METALOG`
-		prints packages that has setuid files, followed by number of files and total size
---]=]
+	THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+	ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+	ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+	FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+	OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+	HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+	LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+	OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+	SUCH DAMAGE.
+--]]
 
 function main(args)
 	if #args == 0 then usage() end
