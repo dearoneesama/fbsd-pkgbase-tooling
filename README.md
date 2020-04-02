@@ -7,7 +7,7 @@ the script accepts an mtree file in a format that's returned by
 
 synopsis:
 ```
-metalog_reader.lua [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
+metalog_reader.lua [-h] [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
 ```
 
 options:
@@ -22,6 +22,7 @@ options:
 	*	`-fsetuid` only include packages with setuid files
 	*	`-fsetid` only include packages with setgid or setuid files
 *	`-v` verbose mode
+*	`-h` help page
 
 some examples:
 

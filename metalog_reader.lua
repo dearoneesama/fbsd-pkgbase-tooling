@@ -31,7 +31,7 @@
 	error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
 
 	synopsis:
-		metalog_reader.lua [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
+		metalog_reader.lua [-h] [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
 
 	some examples:
 
@@ -66,7 +66,9 @@ function main(args)
 
 	local i = 1
 	while i <= #args do
-		if args[i] == '-a' then
+		if args[i] == '-h' then
+			usage(true)
+		elseif args[i] == '-a' then
 			printall = true
 		elseif args[i] == '-c' then
 			printall = false
@@ -130,9 +132,37 @@ function main(args)
 	end
 end
 
-function usage()
-	io.stderr:write('usage: '..arg[0].. ' [-a | -c | -p [-count] [-size] [-f...]] [-W...] metalog-path \n')
-	os.exit(1)
+--- @param man boolean
+function usage(man)
+	local sn = 'Usage: '..arg[0].. ' [-h] [-a | -c | -p [-count] [-size] [-f...]] [-W...] metalog-path \n'
+	if man then
+		io.write('\n')
+		io.write(sn)
+		io.write(
+[[
+
+The script reads METALOG file created by pkgbase (make packages) and generates reports about the installed system and issues.
+It accepts an mtree file in a format that's returned by `mtree -c | mtree -C`
+
+  Options:
+  -a         prints all scan results. this is the default option if no option is provided.
+  -c         lints the file and gives warnings/errors, including duplication and conflicting metadata
+      -Wcheck-notagdir    entries with dir type and no tags will be also included the first time they appear
+  -p         list all package names found in the file as exactly specified by `tags=package=...`
+      -count       display the number of files of the package
+      -size        display the size of the package
+      -fsetgid     only include packages with setgid files
+      -fsetuid     only include packages with setuid files
+      -fsetid      only include packages with setgid or setuid files
+  -v          verbose mode
+  -h          help page
+
+]])
+		os.exit()
+	else
+		io.stderr:write(sn)
+		os.exit(1)
+	end
 end
 
 --- @param sess Analysis_session
