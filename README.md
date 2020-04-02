@@ -7,8 +7,21 @@ the script accepts an mtree file in a format that's returned by
 
 synopsis:
 ```
-metalog_reader.lua [-a | -c | -p [-count] [-size] [...filters]] metalog-path
+metalog_reader.lua [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
 ```
+
+options:
+
+*	`-a` prints all scan results. this is the default option if no option is provided.
+*	`-c` lints the file and gives warnings/errors, including duplication and conflicting metadata
+	*	`-Wcheck-notagdir` entries with dir type and no tags will be also included the first time they appear (1)
+*	`-p` list all package names found in the file as exactly specified by `tags=package=...`
+	*	`-count` display the number of files of the package
+	*	`-size` display the size of the package
+	*	`-fsetgid` only include packages with setgid files
+	*	`-fsetuid` only include packages with setuid files
+	*	`-fsetid` only include packages with setgid or setuid files
+*	`-v` verbose mode
 
 some examples:
 
@@ -16,6 +29,8 @@ some examples:
 	prints all scan results described below. this is the default option
 *	`metalog_reader.lua -c METALOG`
 	only prints errors and warnings found in the file
+*	`metalog_reader.lua -c -Wcheck-notagdir METALOG`
+	prints errors and warnings found in the file, including directories with no tags
 *	`metalog_reader.lua -p METALOG`
 	only prints all the package names found in the file
 *	`metalog_reader.lua -p -count -size METALOG`
@@ -28,31 +43,9 @@ some examples:
 *	`metalog_reader.lua -p -count -size -fsetuid METALOG`
 	prints packages that has setuid files, followed by number of files and total size
 
-behaviour:
-
-under `-a` option, for each package, if it has setuid/setgid files, its name will be appended
-with "setuid setgid".
-the number of files of the package and their total size is printed. if any
-files contain errors, the size may not be able to deduce
-
-if a same filename appears multiple times in the METALOG, and the
-*intersection* of their metadata names present in the METALOG have
-identical values, a warning is shown:
+(1) if we have two entries
 ```
-warning: ./file exists in multiple locations identically: line 1475,30478
+./bin type=dir uname=root gname=wheel mode=0755
+./bin type=dir uname=root gname=wheel mode=0755 tags=...
 ```
-(that means if line A has field "tags" but line B doesn't, if the remaining
-fields are equal, this warning is still shown)
-
-if a same filename appears multiple times in the METALOG, and the
-*intersection* of their metadata names present in the METALOG have
-different values, an error is shown:
-```
-error: ./file exists in multiple locations and with different meta: line 8486,35592 off by "size"
-```
-
-if an inode corresponds to multiple hardlinks, and these filenames have
-different name-values, an error is shown:
-```
-error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
-```
+by default, this is not warned. if the option is enabled, this will be warned as the second line sufficiently covers the first line.

@@ -31,7 +31,7 @@
 	error: entries point to the same inode but have different meta: ./file1,./file2 in line 2122,2120. off by "mode"
 
 	synopsis:
-		metalog_reader.lua [-a | -c | -p [-count] [-size] [...filters]] metalog-path
+		metalog_reader.lua [-a | -c | -p [-count] [-size] [-f...]] [-W...] [-v] metalog-path
 
 	some examples:
 
@@ -39,6 +39,8 @@
 		prints all scan results described above. this is the default option
 	`metalog_reader.lua -c METALOG`
 		only prints errors and warnings found in the file
+	`metalog_reader.lua -c -Wcheck-notagdir METALOG`
+		prints errors and warnings found in the file, including directories with no tags
 	`metalog_reader.lua -p METALOG`
 		only prints all the package names found in the file
 	`metalog_reader.lua -p -count -size METALOG`
@@ -59,6 +61,8 @@ function main(args)
 		= #args == 1, false, false
 	local dcount, dsize, fuid, fgid, fid
 		= false, false, false, false, false
+	local verbose = false
+	local w_notagdirs = false
 
 	local i = 1
 	while i <= #args do
@@ -87,6 +91,10 @@ function main(args)
 					break
 				end
 			end
+		elseif args[i] == '-v' then
+			verbose = true
+		elseif args[i] == '-Wcheck-notagdir' then
+			w_notagdirs = true
 		elseif args[i]:match('^%-') then
 			io.stderr:write('Unknown argument '..args[i]..'.\n')
 			usage()
@@ -101,11 +109,12 @@ function main(args)
 		usage()
 	end
 
-	local sess = Analysis_session(filename)
+	local sess = Analysis_session(filename, verbose, w_notagdirs)
 
 	if printall then
 		io.write('--- PACKAGE REPORTS ---\n')
 		io.write(sess.pkg_report_full())
+		io.write('--- LINTING REPORTS ---\n')
 		print_lints(sess)
 	elseif checkonly then
 		print_lints(sess)
@@ -116,14 +125,13 @@ function main(args)
 			fid and sess.pkg_issetid or nil
 		}))
 	else
-		io.stderr:write('This text should not display.')
+		io.stderr:write('This text should not be displayed.')
 		usage()
 	end
 end
 
 function usage()
-	io.stderr:write('usage: '..arg[0].. ' [-a | -c | -p [-count] [-size] [...filters]] metalog-path \n'
-		..'available filters: [-fsetuid] [-fsetgid] [-fsetid]\n')
+	io.stderr:write('usage: '..arg[0].. ' [-a | -c | -p [-count] [-size] [-f...]] [-W...] metalog-path \n')
 	os.exit(1)
 end
 
@@ -238,7 +246,9 @@ end
 
 --- @class Analysis_session
 --- @param metalog string
-function Analysis_session(metalog)
+--- @param verbose boolean
+--- @param w_notagdirs boolean turn on to also check directories
+function Analysis_session(metalog, verbose, w_notagdirs)
 	local files = {} -- map<string, MetalogRow[]>
 	-- set is map<elem, bool>. if bool is true then elem exists
 	local pkgs = {} -- map<string, set<string>>
@@ -393,7 +403,7 @@ function Analysis_session(metalog)
 		-- obtain inodes of filenames
 		local attributes = require('lfs').attributes
 		local inm = {} -- map<number, string[]>
-		local unstatable = 0
+		local unstatables = {} -- string[]
 		for filename in pairs(files) do
 			-- i only took the first row of a filename,
 			-- and skip links and folders
@@ -404,7 +414,7 @@ function Analysis_session(metalog)
 			filename = filename:sub(2)
 			local fs = attributes(filename)
 			if fs == nil then
-				unstatable = unstatable + 1
+				unstatables[#unstatables+1] = filename
 				goto continue
 			end
 			local inode = fs.ino
@@ -434,19 +444,25 @@ function Analysis_session(metalog)
 			::continue::
 		end
 
-		if unstatable > 0 then
-			warn[#warn+1] = 'note: skipped checking inodes for '..unstatable..' entries\n'
+		if #unstatables > 0 then
+			warn[#warn+1] = verbose and
+				'note: skipped checking inodes: '..table.concat(unstatables, ',')..'\n'
+				or
+				'note: skipped checking inodes for '..#unstatables..' entries\n'
 		end
 
 		return table.concat(warn, ''), table.concat(errs, '')
 	end
 
+	do
 	local fp, errmsg, errcode = io.open(metalog, 'r')
 	if fp == nil then
 		io.stderr:write('cannot open '..metalog..': '..errmsg..': '..errcode..'\n')
+		os.exit(1)
 	end
 
 	-- scan all lines and put file data into the dictionaries
+	local firsttimes = {} -- set<string>
 	local lineno = 0
 	for line in fp:lines() do
 		-----local isinpkg = false
@@ -457,6 +473,14 @@ function Analysis_session(metalog)
 		if line:match('^%s*$') then goto continue end
 
 		local data = MetalogRow(line, lineno)
+		-- entries with dir and no tags... ignore for the first time
+		if not w_notagdirs and
+			data.attrs.tags == nil and data.attrs.type == 'dir'
+			and not firsttimes[data.filename] then
+			firsttimes[data.filename] = true
+			goto continue
+		end
+
 		files[data.filename] = files[data.filename] or {}
 		table.insert(files[data.filename], data)
 
@@ -471,8 +495,11 @@ function Analysis_session(metalog)
 	end
 
 	fp:close()
+	end
 
 	return {
+		warn = swarn,
+		errs = serrs,
 		pkg_issetuid = pkg_issetuid,
 		pkg_issetgid = pkg_issetgid,
 		pkg_issetid = pkg_issetid,
